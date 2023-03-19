@@ -50,6 +50,7 @@ data/ch7/**.pcd
 **DS_Store
 
 data/ch9/**.pcd
+data/ch9/**
 data/ch3/state.txt
 data/ch3/gins.txt
 data/ch3/gnss_output.txt
