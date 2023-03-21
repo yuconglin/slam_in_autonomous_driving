@@ -3,6 +3,7 @@
 //
 
 #include "ch3/eskf.hpp"
+#include "ch3/eukf.hpp"
 #include "ch3/ieskf.hpp"
 #include "ch3/static_imu_init.h"
 #include "common/io_utils.h"
@@ -36,7 +37,7 @@ int main(int argc, char** argv) {
 
     // 初始化器
     sad::StaticIMUInit imu_init;  // 使用默认配置
-    sad::IESKFD eskf;
+    sad::EUKFD eskf;
 
     sad::TxtIO io(FLAGS_txt_path);
     Vec2d antenna_pos(FLAGS_antenna_pox_x, FLAGS_antenna_pox_y);
@@ -79,7 +80,7 @@ int main(int argc, char** argv) {
           /// 需要IMU初始化
           if (!imu_inited) {
               // 读取初始零偏，设置ESKF
-              sad::IESKFD::Options options;
+              sad::EUKFD::Options options;
               // 噪声由初始化器估计
               options.gyro_var_ = sqrt(imu_init.GetCovGyro()[0]);
               options.acce_var_ = sqrt(imu_init.GetCovAcce()[0]);
