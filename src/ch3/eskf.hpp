@@ -249,7 +249,7 @@ bool ESKF<S>::Predict(const IMU& imu) {
     F.template block<3, 3>(6, 9) = -Mat3T::Identity() * dt;                        // theta 对 bg
 
     // mean and cov prediction
-    dx_ = F * dx_;  // 这行其实没必要算，dx_在重置之后应该为零，因此这步可以跳过，但F需要参与Cov部分计算，所以保留
+    // dx_ = F * dx_;  // 这行其实没必要算，dx_在重置之后应该为零，因此这步可以跳过，但F需要参与Cov部分计算，所以保留
     cov_ = F * cov_.eval() * F.transpose() + Q_;
     current_time_ = imu.timestamp_;
     return true;
@@ -327,7 +327,11 @@ bool ESKF<S>::ObserveSE3(const SE3& pose, double trans_noise, double ang_noise) 
     dx_ = K * innov;
     cov_ = (Mat18T::Identity() - K * H) * cov_;
 
-    UpdateAndReset();
+    constexpr double kChi2Threshold = 25.989;
+    if (dx_.transpose() * cov_.inverse() * dx_ < kChi2Threshold) {
+        UpdateAndReset();
+    }
+
     return true;
 }
 
