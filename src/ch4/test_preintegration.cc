@@ -238,7 +238,7 @@ TEST(PREINTEGRATION_TEST, ESKF_TEST) {
 
                 auto state_pred = preinteg->Predict(last_state, eskf.GetGravity());
                 LOG(INFO) << "state in pred: " << state_pred;
-
+                LOG(INFO) << "gnss_convert: " << gnss_convert.utm_pose_.translation().transpose();
                 Optimize(last_state, update_state, last_gnss, gnss_convert, preinteg, eskf.GetGravity());
             }
 

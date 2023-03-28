@@ -327,10 +327,7 @@ bool ESKF<S>::ObserveSE3(const SE3& pose, double trans_noise, double ang_noise) 
     dx_ = K * innov;
     cov_ = (Mat18T::Identity() - K * H) * cov_;
 
-    constexpr double kChi2Threshold = 25.989;
-    if (dx_.transpose() * cov_.inverse() * dx_ < kChi2Threshold) {
-        UpdateAndReset();
-    }
+    UpdateAndReset();
 
     return true;
 }

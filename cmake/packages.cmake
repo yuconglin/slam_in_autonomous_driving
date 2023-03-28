@@ -66,6 +66,10 @@ include_directories(${Pangolin_INCLUDE_DIRS})
 find_package(yaml-cpp REQUIRED)
 include_directories(${yaml-cpp_INCLUDE_DIRS})
 
+# 寻找Ceres库并添加它的头文件
+find_package(Ceres REQUIRED)
+include_directories(${CERES_INCLUDE_DIRS})
+
 # 其他thirdparty下的内容
 include_directories(${PROJECT_SOURCE_DIR}/thirdparty/)
 include_directories(${PROJECT_SOURCE_DIR}/thirdparty/velodyne/include)
