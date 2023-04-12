@@ -54,6 +54,7 @@ class IMUPreintegration {
 
    public:
     double dt_ = 0;                          // 整体预积分时间
+    double dt2_ = 0;                         // Total accumulated square of time increments.
     Mat9d cov_ = Mat9d::Zero();              // 累计噪声矩阵
     Mat6d noise_gyro_acce_ = Mat6d::Zero();  // 测量噪声矩阵
 

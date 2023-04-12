@@ -63,6 +63,7 @@ void IMUPreintegration::Integrate(const IMU &imu, double dt) {
 
     // 增量积分时间
     dt_ += dt;
+    dt2_ += dt2;
 }
 
 SO3 IMUPreintegration::GetDeltaRotation(const Vec3d &bg) { return dR_ * SO3::exp(dR_dbg_ * (bg - bg_)); }

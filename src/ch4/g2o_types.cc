@@ -8,7 +8,7 @@
 namespace sad {
 
 EdgeInertial::EdgeInertial(std::shared_ptr<IMUPreintegration> preinteg, const Vec3d& gravity, double weight)
-    : preint_(preinteg), dt_(preinteg->dt_) {
+    : preint_(preinteg), dt_(preinteg->dt_), dt2_(preinteg->dt2_) {
     resize(6);  // 6个关联顶点
     grav_ = gravity;
     setInformation(preinteg->cov_.inverse() * weight);
@@ -34,7 +34,7 @@ void EdgeInertial::computeError() {
     Mat3d RiT = p1->estimate().so3().inverse().matrix();
     const Vec3d ev = RiT * (v2->estimate() - v1->estimate() - grav_ * dt_) - dv;
     const Vec3d ep = RiT * (p2->estimate().translation() - p1->estimate().translation() - v1->estimate() * dt_ -
-                            grav_ * dt_ * dt_ / 2) -
+                            grav_ * dt2_ / 2) -
                      dp;
     _error << er, ev, ep;
 }
@@ -93,7 +93,7 @@ void EdgeInertial::linearizeOplus() {
     // dv/dR1, 4.47
     _jacobianOplus[0].block<3, 3>(3, 0) = SO3::hat(R1T * (vj - vi - grav_ * dt_));
     // dp/dR1, 4.48d
-    _jacobianOplus[0].block<3, 3>(6, 0) = SO3::hat(R1T * (pj - pi - v1->estimate() * dt_ - 0.5 * grav_ * dt_ * dt_));
+    _jacobianOplus[0].block<3, 3>(6, 0) = SO3::hat(R1T * (pj - pi - v1->estimate() * dt_ - 0.5 * grav_ * dt2_));
 
     /// 残差对p1, 9x3
     // dp/dp1, 4.48a
