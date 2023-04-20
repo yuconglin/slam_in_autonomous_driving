@@ -11,6 +11,7 @@
 #include "ch5/bfnn.h"
 #include "ch5/gridnn.hpp"
 #include "ch5/kdtree.h"
+#include "ch5/kdtree_template.h"
 #include "ch5/octo_tree.h"
 #include "common/point_cloud_utils.h"
 #include "common/point_types.h"
@@ -217,6 +218,9 @@ TEST(CH5_TEST, KDTREE_BASICS) {
     kdtree.BuildTree(cloud);
     kdtree.PrintAll();
 
+    sad::KdTreeTemp kdtree_temp;
+    kdtree_temp.BuildTree<pcl::PointXYZI>(cloud);
+
     SUCCEED();
 }
 
@@ -249,6 +253,20 @@ TEST(CH5_TEST, KDTREE_KNN) {
     std::vector<std::pair<size_t, size_t>> matches;
     sad::evaluate_and_call([&first, &second, &kdtree, &matches]() { kdtree.GetClosestPointMT(second, matches, 5); },
                            "Kd Tree 5NN 多线程", 1);
+    EvaluateMatches(true_matches, matches);
+
+    // Test KdTree Template.
+    sad::KdTreeTemp kdtree_temp;
+    sad::evaluate_and_call([&first, &kdtree_temp]() { kdtree_temp.BuildTree<pcl::PointXYZI>(first); },
+                           "Kd Tree Template build", 1);
+
+    kdtree_temp.SetEnableANN(true, FLAGS_ANN_alpha);
+
+    LOG(INFO) << "Kd tree template leaves: " << kdtree_temp.size() << ", points: " << first->size();
+
+    sad::evaluate_and_call([&first, &second, &kdtree_temp,
+                            &matches]() { kdtree_temp.GetClosestPointMT<pcl::PointXYZI>(second, matches, 5); },
+                           "Kd Tree Template 5NN 多线程", 1);
     EvaluateMatches(true_matches, matches);
 
     LOG(INFO) << "building kdtree pcl";
