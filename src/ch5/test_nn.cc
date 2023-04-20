@@ -114,12 +114,14 @@ TEST(CH5_TEST, GRID_NN) {
     // 对比不同种类的grid
     sad::GridNN<2> grid0(0.1, sad::GridNN<2>::NearbyType::CENTER), grid4(0.1, sad::GridNN<2>::NearbyType::NEARBY4),
         grid8(0.1, sad::GridNN<2>::NearbyType::NEARBY8);
-    sad::GridNN<3> grid3(0.1, sad::GridNN<3>::NearbyType::NEARBY6);
+    sad::GridNN<3> grid3_N6(0.1, sad::GridNN<3>::NearbyType::NEARBY6);
+    sad::GridNN<3> grid3_N14(0.1, sad::GridNN<3>::NearbyType::NEARBY14);
 
     grid0.SetPointCloud(first);
     grid4.SetPointCloud(first);
     grid8.SetPointCloud(first);
-    grid3.SetPointCloud(first);
+    grid3_N6.SetPointCloud(first);
+    grid3_N14.SetPointCloud(first);
 
     // 评价各种版本的Grid NN
     // sorry没有C17的template lambda... 下面必须写的啰嗦一些
@@ -162,14 +164,26 @@ TEST(CH5_TEST, GRID_NN) {
 
     LOG(INFO) << "===================";
     sad::evaluate_and_call(
-        [&first, &second, &grid3, &matches]() { grid3.GetClosestPointForCloud(first, second, matches); },
-        "Grid 3D 单线程", 10);
+        [&first, &second, &grid3_N6, &matches]() { grid3_N6.GetClosestPointForCloud(first, second, matches); },
+        "Grid 3D N6 单线程", 10);
     EvaluateMatches(truth_matches, matches);
 
     LOG(INFO) << "===================";
     sad::evaluate_and_call(
-        [&first, &second, &grid3, &matches]() { grid3.GetClosestPointForCloudMT(first, second, matches); },
-        "Grid 3D 多线程", 10);
+        [&first, &second, &grid3_N6, &matches]() { grid3_N6.GetClosestPointForCloudMT(first, second, matches); },
+        "Grid 3D N6 多线程", 10);
+    EvaluateMatches(truth_matches, matches);
+
+    LOG(INFO) << "===================";
+    sad::evaluate_and_call(
+        [&first, &second, &grid3_N14, &matches]() { grid3_N14.GetClosestPointForCloud(first, second, matches); },
+        "Grid 3D N14 单线程", 10);
+    EvaluateMatches(truth_matches, matches);
+
+    LOG(INFO) << "===================";
+    sad::evaluate_and_call(
+        [&first, &second, &grid3_N14, &matches]() { grid3_N14.GetClosestPointForCloudMT(first, second, matches); },
+        "Grid 3D N14 多线程", 10);
     EvaluateMatches(truth_matches, matches);
 
     SUCCEED();
