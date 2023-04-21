@@ -18,7 +18,15 @@ namespace sad {
 struct Box3D {
     Box3D() = default;
     Box3D(float min_x, float max_x, float min_y, float max_y, float min_z, float max_z)
-        : min_{min_x, min_y, min_z}, max_{max_x, max_y, max_z} {}
+        : min_{min_x, min_y, min_z}, max_{max_x, max_y, max_z} {
+        // The order is important to push_back edges.
+        edges_.push_back({{min_y, min_z}, {min_y, max_z}, {max_y, min_z}, {max_y, max_z}} /*yz edges*/);
+        edges_.push_back({{min_x, min_z}, {min_x, max_z}, {max_x, min_z}, {max_x, max_z}} /*xz edges*/);
+        edges_.push_back({{min_x, min_y}, {min_x, max_y}, {max_x, min_y}, {max_x, max_y}} /*xy edges*/);
+
+        vertice_ = {{min_x, min_y, min_z}, {min_x, min_y, max_z}, {min_x, max_y, min_z}, {min_x, max_y, max_z},
+                    {max_x, min_y, min_z}, {max_x, min_y, max_z}, {max_x, max_y, min_z}, {max_x, max_y, max_z}};
+    }
 
     /// 判断pt是否在内部
     bool Inside(const Vec3f& pt) const {
@@ -29,23 +37,62 @@ struct Box3D {
     /// 点到3D Box距离
     /// 我们取外侧点到边界的最大值
     float Dis(const Vec3f& pt) const {
-        float ret = 0;
-        for (int i = 0; i < 3; ++i) {
-            if (pt[i] < min_[i]) {
-                float d = min_[i] - pt[i];
-                ret = d > ret ? d : ret;
-            } else if (pt[i] > max_[i]) {
-                float d = pt[i] - max_[i];
-                ret = d > ret ? d : ret;
+        bool between[3] = {};
+        int count = 0;
+        for (int i = 0; i < 3; ++ i) {
+            if (between[i] = (pt[i] > min_[i] && pt[i] < max_[i])) {
+                ++count;
             }
         }
 
-        assert(ret >= 0);
-        return ret;
+        float ret = 0;
+        // Within the box.
+        if (count == 3) {
+            return ret;
+        }
+
+        // Within one face.
+        if (count == 2) {
+            for (int i = 0; i < 3; ++i) {
+                if (pt[i] < min_[i]) {
+                    float d = min_[i] - pt[i];
+                    ret = d > ret ? d : ret;
+                } else if (pt[i] > max_[i]) {
+                    float d = pt[i] - max_[i];
+                    ret = d > ret ? d : ret;
+                }
+            }
+
+            assert(ret >= 0);
+            return ret;
+        } 
+
+        // Within one edge. 
+        if (count == 1) {
+            const std::vector<Vec2f> sub_points{{pt.y(), pt.z()}, {pt.x(), pt.z()}, {pt.x(), pt.y()}};
+            for (int i = 0; i < 3; ++ i) {
+                if (between[i]) {
+                    for (const Vec2f & edge : edges_[i]) {
+                        ret = std::min(ret, (sub_points[i] - edge).squaredNorm());
+                    }
+                    return std::sqrt(ret);
+                }
+            } 
+        }
+
+        // Not even within any edge.
+        for (const Vec3f& vertex : vertice_) {
+            ret = std::min(ret, (vertex - pt).squaredNorm());
+        }
+
+        return std::sqrt(ret);
     }
 
     float min_[3] = {0};
     float max_[3] = {0};
+
+    std::vector<std::vector<Vec2f>> edges_;
+    std::vector<Vec3f> vertice_;
 };
 
 /// octo tree 节点
