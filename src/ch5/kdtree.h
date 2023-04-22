@@ -14,12 +14,47 @@
 
 namespace sad {
 
+// 3D Box 记录各轴上的最大最小值
+struct kBox3D {
+    kBox3D() = default;
+    kBox3D(float min_x, float max_x, float min_y, float max_y, float min_z, float max_z)
+        : min_{min_x, min_y, min_z}, max_{max_x, max_y, max_z} {}
+
+    /// 判断pt是否在内部
+    bool Inside(const Vec3f& pt) const {
+        return pt[0] <= max_[0] && pt[0] >= min_[0] && pt[1] <= max_[1] && pt[1] >= min_[1] && pt[2] <= max_[2] &&
+               pt[2] >= min_[2];
+    }
+
+    /// 点到3D Box距离
+    /// 我们取外侧点到边界的最大值
+    float Dis(const Vec3f& pt) const {
+        float ret = 0;
+        for (int i = 0; i < 3; ++i) {
+            if (pt[i] < min_[i]) {
+                float d = min_[i] - pt[i];
+                ret = d > ret ? d : ret;
+            } else if (pt[i] > max_[i]) {
+                float d = pt[i] - max_[i];
+                ret = d > ret ? d : ret;
+            }
+        }
+
+        assert(ret >= 0);
+        return ret;
+    }
+
+    float min_[3] = {0};
+    float max_[3] = {0};
+};
+
 /// Kd树节点，二叉树结构，内部用祼指针，对外一个root的shared_ptr
 struct KdTreeNode {
     int id_ = -1;
-    int point_idx_ = 0;            // 点的索引
-    int axis_index_ = 0;           // 分割轴
-    float split_thresh_ = 0.0;     // 分割位置
+    int point_idx_ = 0;         // 点的索引
+    int axis_index_ = 0;        // 分割轴
+    float split_thresh_ = 0.0;  // 分割位置
+    kBox3D box_;
     KdTreeNode* left_ = nullptr;   // 左子树
     KdTreeNode* right_ = nullptr;  // 右子树
 
@@ -114,6 +149,8 @@ class KdTree {
      * @return true if 需要展开
      */
     bool NeedExpand(const Vec3f& pt, KdTreeNode* node, std::priority_queue<NodeAndDistance>& knn_result) const;
+
+    kBox3D ComputeBoundingBox();
 
     int k_ = 5;                                   // knn最近邻数量
     std::shared_ptr<KdTreeNode> root_ = nullptr;  // 叶子节点

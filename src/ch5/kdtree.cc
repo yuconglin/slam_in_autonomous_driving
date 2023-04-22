@@ -30,6 +30,7 @@ bool KdTree::BuildTree(const CloudPtr &cloud) {
         idx[i] = i;
     }
 
+    root_->box_ = ComputeBoundingBox();
     Insert(idx, root_.get());
     return true;
 }
@@ -63,7 +64,12 @@ void KdTree::Insert(const IndexVec &points, KdTreeNode *node) {
     };
 
     create_if_not_empty(node->left_, left);
+    node->left_->box_ = node->box_;
+    node->left_->box_.max_[node->axis_index_] = node->split_thresh_;
+
     create_if_not_empty(node->right_, right);
+    node->right_->box_ = node->box_;
+    node->left_->box_.min_[node->axis_index_] = node->split_thresh_;
 }
 
 bool KdTree::GetClosestPoint(const PointType &pt, std::vector<int> &closest_idx, int k) {
@@ -140,8 +146,9 @@ bool KdTree::NeedExpand(const Vec3f &pt, KdTreeNode *node, std::priority_queue<N
         return true;
     }
 
+    // const float d = pt[node->axis_index_] - node->split_thresh_;
+    const float d = node->box_.Dis(pt);
     if (approximate_) {
-        float d = pt[node->axis_index_] - node->split_thresh_;
         if ((d * d) < knn_result.top().distance2_ * alpha_) {
             return true;
         } else {
@@ -149,7 +156,6 @@ bool KdTree::NeedExpand(const Vec3f &pt, KdTreeNode *node, std::priority_queue<N
         }
     } else {
         // 检测切面距离，看是否有比现在更小的
-        float d = pt[node->axis_index_] - node->split_thresh_;
         if ((d * d) < knn_result.top().distance2_) {
             return true;
         } else {
@@ -231,6 +237,20 @@ void KdTree::PrintAll() {
             LOG(INFO) << "node: " << node->id_ << ", axis: " << node->axis_index_ << ", th: " << node->split_thresh_;
         }
     }
+}
+
+kBox3D KdTree::ComputeBoundingBox() {
+    float min_values[3] = {std::numeric_limits<float>::max()};
+    float max_values[3] = {-std::numeric_limits<float>::max()};
+
+    for (const auto &p : cloud_) {
+        for (int i = 0; i < 3; ++i) {
+            max_values[i] = p[i] > max_values[i] ? p[i] : max_values[i];
+            min_values[i] = p[i] < min_values[i] ? p[i] : min_values[i];
+        }
+    }
+
+    return {min_values[0], max_values[0], min_values[1], max_values[1], min_values[2], max_values[2]};
 }
 
 }  // namespace sad
