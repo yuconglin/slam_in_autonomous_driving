@@ -54,6 +54,31 @@ void LikelihoodField::BuildModel() {
     }
 }
 
+float LikelihoodField::GetFieldValue(const Vec2f& pt) {
+    const float x1 = std::floor(pt.x());
+    const float x2 = x1 + 1.0;
+    const float y1 = std::floor(pt.y());
+    const float y2 = y1 + 1.0;
+
+    constexpr float kMaxDistance = 1e4;
+    if (x1 < 0 || x1 >= field_.cols || x2 < 0 || x2 >= field_.cols || y1 < 0 || y1 >= field_.rows || y2 < 0 ||
+        y2 >= field_.rows) {
+        return kMaxDistance;
+    }
+
+    const float f11 = field_.at<float>(y1, x1);
+    const float f12 = field_.at<float>(y1, x2);
+    const float f21 = field_.at<float>(y2, x1);
+    const float f22 = field_.at<float>(y2, x2);
+
+    // From Wikipedia:
+    // https://en.wikipedia.org/wiki/Bilinear_interpolation#Repeated_linear_interpolation
+    const float divisor = (x2 - x1) * (y2 - y1);
+    const float numerator = (f11 * (x2 - pt.x()) * (y2 - pt.y()) + f21 * (pt.x() - x1) * (y2 - pt.y()) +
+                             f12 * (x2 - pt.x()) * (pt.y() - y1) + f22 * (pt.x() - x1) * (pt.y() - y1));
+    return numerator / divisor;
+}
+
 void LikelihoodField::SetSourceScan(Scan2d::Ptr scan) { source_ = scan; }
 
 bool LikelihoodField::AlignGaussNewton(SE2& init_pose) {
@@ -87,22 +112,26 @@ bool LikelihoodField::AlignGaussNewton(SE2& init_pose) {
             Vec2d pw = current_pose * Vec2d(r * std::cos(angle), r * std::sin(angle));
 
             // 在field中的图像坐标
-            Vec2i pf = (pw * resolution_ + Vec2d(500, 500)).cast<int>();
+            // Vec2i pf = (pw * resolution_ + Vec2d(500, 500)).cast<int>();
+            const Vec2f pf = (pw * resolution_ + Vec2d(500, 500)).cast<float>();
 
             if (pf[0] >= image_boarder && pf[0] < field_.cols - image_boarder && pf[1] >= image_boarder &&
                 pf[1] < field_.rows - image_boarder) {
                 effective_num++;
 
                 // 图像梯度
-                float dx = 0.5 * (field_.at<float>(pf[1], pf[0] + 1) - field_.at<float>(pf[1], pf[0] - 1));
-                float dy = 0.5 * (field_.at<float>(pf[1] + 1, pf[0]) - field_.at<float>(pf[1] - 1, pf[0]));
+                // float dx = 0.5 * (field_.at<float>(pf[1], pf[0] + 1) - field_.at<float>(pf[1], pf[0] - 1));
+                // float dy = 0.5 * (field_.at<float>(pf[1] + 1, pf[0]) - field_.at<float>(pf[1] - 1, pf[0]));
+                const float dx = 0.5 * (GetFieldValue({pf[0] + 1, pf[1]}) - GetFieldValue({pf[0] - 1, pf[1]}));
+                const float dy = 0.5 * (GetFieldValue({pf[0], pf[1] + 1}) - GetFieldValue({pf[0], pf[1] - 1}));
 
                 Vec3d J;
                 J << resolution_ * dx, resolution_ * dy,
                     -resolution_ * dx * r * std::sin(angle + theta) + resolution_ * dy * r * std::cos(angle + theta);
                 H += J * J.transpose();
 
-                float e = field_.at<float>(pf[1], pf[0]);
+                // float e = field_.at<float>(pf[1], pf[0]);
+                const float e = GetFieldValue(pf);
                 b += -J * e;
 
                 cost += e * e;

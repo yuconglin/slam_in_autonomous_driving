@@ -53,6 +53,8 @@ class LikelihoodField {
    private:
     void BuildModel();
 
+    float GetFieldValue(const Vec2f& pt);
+
     SE2 pose_;  // T_W_S
     Scan2d::Ptr target_ = nullptr;
     Scan2d::Ptr source_ = nullptr;
