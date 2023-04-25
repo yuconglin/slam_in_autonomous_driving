@@ -3,11 +3,19 @@
 //
 
 #include "ch6/icp_2d.h"
+#include "ch6/g2o_types.h"
 #include "common/math_utils.h"
 
 #include <glog/logging.h>
 #include <pcl/kdtree/kdtree_flann.h>
 #include <pcl/search/impl/kdtree.hpp>
+
+#include <g2o/core/block_solver.h>
+#include <g2o/core/optimization_algorithm_gauss_newton.h>
+#include <g2o/core/optimization_algorithm_levenberg.h>
+#include <g2o/core/robust_kernel.h>
+#include <g2o/solvers/cholmod/linear_solver_cholmod.h>
+#include <g2o/solvers/eigen/linear_solver_eigen.h>
 
 namespace sad {
 
@@ -168,6 +176,89 @@ bool Icp2d::AlignGaussNewtonPoint2Plane(SE2& init_pose) {
         current_pose.so2() = current_pose.so2() * SO2::exp(dx[2]);
         lastCost = cost;
     }
+
+    init_pose = current_pose;
+    LOG(INFO) << "estimated pose: " << current_pose.translation().transpose()
+              << ", theta: " << current_pose.so2().log();
+
+    return true;
+}
+
+bool Icp2d::AlignG2o(SE2& init_pose) {
+    int iterations = 10;
+    double cost = 0, lastCost = 0;
+    SE2 current_pose = init_pose;
+    const float max_dis2 = 0.01;    // 最近邻时的最远距离（平方）
+    const int min_effect_pts = 20;  // 最小有效点数
+
+    using BlockSolverType = g2o::BlockSolver<g2o::BlockSolverTraits<3, 2>>;
+    using LinearSolverType = g2o::LinearSolverCholmod<BlockSolverType::PoseMatrixType>;
+
+    for (int iter = 0; iter < iterations; ++iter) {
+        cost = 0;
+        int effective_num = 0;  // 有效点数
+
+        g2o::SparseOptimizer optimizer;
+        auto* solver = new g2o::OptimizationAlgorithmLevenberg(
+            g2o::make_unique<BlockSolverType>(g2o::make_unique<LinearSolverType>()));
+        optimizer.setAlgorithm(solver);
+
+        auto* v = new VertexSE2();
+        v->setId(0);
+        v->setEstimate(current_pose);
+        optimizer.addVertex(v);
+
+        // 遍历source
+        for (size_t i = 0; i < source_scan_->ranges.size(); ++i) {
+            float r = source_scan_->ranges[i];
+            if (r < source_scan_->range_min || r > source_scan_->range_max) {
+                continue;
+            }
+
+            float angle = source_scan_->angle_min + i * source_scan_->angle_increment;
+            const Vec2d pw = current_pose * Vec2d(r * std::cos(angle), r * std::sin(angle));
+            Point2d pt;
+            pt.x = pw.x();
+            pt.y = pw.y();
+
+            // 最近邻
+            std::vector<int> nn_idx;
+            std::vector<float> dis;
+            kdtree_.nearestKSearch(pt, 1, nn_idx, dis);
+
+            if (nn_idx.size() > 0 && dis[0] < max_dis2) {
+                effective_num++;
+                // Adds an edge.
+                auto e = new PointToPointIcp2dEdge(r, angle);
+                e->setVertex(0, v);
+                e->setInformation(Mat2d::Identity());
+                e->setMeasurement({target_cloud_->points[nn_idx[0]].x, target_cloud_->points[nn_idx[0]].y});
+                optimizer.addEdge(e);
+                e->computeError();
+                cost += e->chi2();
+            }
+        }
+
+        if (effective_num < min_effect_pts) {
+            return false;
+        }
+
+        optimizer.setVerbose(false);
+        optimizer.initializeOptimization();
+        optimizer.optimize(2);
+
+        cost /= effective_num;
+        if (iter > 0 && cost >= lastCost) {
+            break;
+        }
+
+        LOG(INFO) << "iter " << iter << " cost = " << cost << ", effect num: " << effective_num;
+
+        current_pose = v->estimate();
+        lastCost = cost;
+    }
+
+    LOG(INFO) << "initial pose: " << init_pose.translation().transpose() << ", theta: " << init_pose.so2().log();
 
     init_pose = current_pose;
     LOG(INFO) << "estimated pose: " << current_pose.translation().transpose()

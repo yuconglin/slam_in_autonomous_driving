@@ -38,6 +38,7 @@ target_link_libraries(test_2d_icp_s2s
         ${catkin_LIBRARIES}
         glog gflags
         ${PCL_LIBRARIES}
+        ${g2o_libs}
         )
 
 add_executable(test_2d_icp_likelihood

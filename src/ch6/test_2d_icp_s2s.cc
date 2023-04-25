@@ -41,6 +41,7 @@ int main(int argc, char** argv) {
                              SE2 pose;
                              if (fLS::FLAGS_method == "point2point") {
                                  icp.AlignGaussNewton(pose);
+                                 // icp.AlignG2o(pose);
                              } else if (fLS::FLAGS_method == "point2plane") {
                                  icp.AlignGaussNewtonPoint2Plane(pose);
                              }
