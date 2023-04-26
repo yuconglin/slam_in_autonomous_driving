@@ -130,31 +130,64 @@ class EdgeSE2 : public g2o::BaseBinaryEdge<3, SE2, VertexSE2, VertexSE2> {
 
 /*An edge for 2D point-to-point ICP.*/
 class PointToPointIcp2dEdge : public g2o::BaseUnaryEdge<2, Vec2d, VertexSE2> {
-  public:
-   EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
-   PointToPointIcp2dEdge(double range, double angle) : range_(range), angle_(angle) {}
+   public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+    PointToPointIcp2dEdge(double range, double angle) : range_(range), angle_(angle) {}
 
-   virtual void computeError() {
-     VertexSE2* v = (VertexSE2*)_vertices[0];
-     const SE2 pose = v->estimate();
-     const Vec2d pw = pose * Vec2d(range_ * std::cos(angle_), range_ * std::sin(angle_));
-     _error = _measurement - pw;
-   }
+    virtual void computeError() {
+        VertexSE2* v = (VertexSE2*)_vertices[0];
+        const SE2 pose = v->estimate();
+        const Vec2d pw = pose * Vec2d(range_ * std::cos(angle_), range_ * std::sin(angle_));
+        _error = _measurement - pw;
+    }
 
-   virtual void linearizeOpluse() {
-     VertexSE2* v = (VertexSE2*)_vertices[0];
-     const SE2 pose = v->estimate();
-     const float theta = pose.so2().log();
-     _jacobianOplusXi << 1, 0, 0, 1, -range_ * std::sin(angle_ + theta), range_ * std::cos(angle_ + theta);
-   }
+    virtual void linearizeOpluse() {
+        VertexSE2* v = (VertexSE2*)_vertices[0];
+        const SE2 pose = v->estimate();
+        const float theta = pose.so2().log();
+        _jacobianOplusXi << 1, 0, 0, 1, -range_ * std::sin(angle_ + theta), range_ * std::cos(angle_ + theta);
+    }
 
-   bool read(std::istream& in) override { return true; }
-   bool write(std::ostream& out) const override { return true; }
+    bool read(std::istream& in) override { return true; }
+    bool write(std::ostream& out) const override { return true; }
 
-  protected:
-   // Sensor observation.
-   double range_ = 0;
-   double angle_ = 0;
+   protected:
+    // Sensor observation.
+    double range_ = 0;
+    double angle_ = 0;
+};
+
+// Point-to-Plane 2D edge.
+class PointToPlaneIcp2dEdge : public g2o::BaseUnaryEdge<1, double, VertexSE2> {
+   public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+    PointToPlaneIcp2dEdge(double range, double angle, const Vec3d& line_coeffs)
+        : range_(range), angle_(angle), line_coeffs_(line_coeffs) {}
+
+    virtual void computeError() {
+        VertexSE2* v = (VertexSE2*)_vertices[0];
+        const SE2 pose = v->estimate();
+        const Vec2d pw = pose * Vec2d(range_ * std::cos(angle_), range_ * std::sin(angle_));
+        _error[0] = line_coeffs_[0] * pw[0] + line_coeffs_[1] * pw[1] + line_coeffs_[2];
+    }
+
+    virtual void linearizeOpluse() {
+        VertexSE2* v = (VertexSE2*)_vertices[0];
+        const SE2 pose = v->estimate();
+        const float theta = pose.so2().log();
+
+        _jacobianOplusXi << line_coeffs_[0], line_coeffs_[1],
+            -line_coeffs_[0] * range_ * std::sin(angle_ + theta) + line_coeffs_[1] * range_ * std::cos(angle_ + theta);
+    }
+
+    bool read(std::istream& in) override { return true; }
+    bool write(std::ostream& out) const override { return true; }
+
+   protected:
+    // Sensor observation.
+    double range_ = 0;
+    double angle_ = 0;
+    Vec3d line_coeffs_;
 };
 
 }  // namespace sad
