@@ -62,6 +62,8 @@ class Icp3d {
     /// 使用gauss-newton方法进行配准, 点到点
     bool AlignP2P(SE3& init_pose);
 
+    bool AlignP2pReduce(SE3& init_pose);
+
     /// 基于gauss-newton的点线ICP
     bool AlignP2Line(SE3& init_pose);
 

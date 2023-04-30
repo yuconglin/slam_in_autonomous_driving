@@ -49,7 +49,8 @@ int main(int argc, char** argv) {
             icp.SetTarget(target);
             icp.SetGroundTruth(gt_pose);
             SE3 pose;
-            success = icp.AlignP2P(pose);
+            // success = icp.AlignP2P(pose);
+            success = icp.AlignP2pReduce(pose);
             if (success) {
                 LOG(INFO) << "icp p2p align success, pose: " << pose.so3().unit_quaternion().coeffs().transpose()
                           << ", " << pose.translation().transpose();
@@ -93,8 +94,8 @@ int main(int argc, char** argv) {
             SE3 pose;
             success = icp.AlignP2Line(pose);
             if (success) {
-                LOG(ERROR) << "icp p2line align success, pose: " << pose.so3().unit_quaternion().coeffs().transpose()
-                           << ", " << pose.translation().transpose();
+                LOG(INFO) << "icp p2line align success, pose: " << pose.so3().unit_quaternion().coeffs().transpose()
+                          << ", " << pose.translation().transpose();
                 sad::CloudPtr source_trans(new sad::PointCloudType);
                 pcl::transformPointCloud(*source, *source_trans, pose.matrix().cast<float>());
                 pcl::io::savePCDFileBinaryCompressed("./data/ch7/icp_line_trans.pcd", *source_trans);
@@ -118,8 +119,8 @@ int main(int argc, char** argv) {
             SE3 pose;
             success = ndt.AlignNdt(pose);
             if (success) {
-                LOG(ERROR) << "ndt align success, pose: " << pose.so3().unit_quaternion().coeffs().transpose() << ", "
-                           << pose.translation().transpose();
+                LOG(INFO) << "ndt align success, pose: " << pose.so3().unit_quaternion().coeffs().transpose() << ", "
+                          << pose.translation().transpose();
                 sad::CloudPtr source_trans(new sad::PointCloudType);
                 pcl::transformPointCloud(*source, *source_trans, pose.matrix().cast<float>());
                 pcl::io::savePCDFileBinaryCompressed("./data/ch7/ndt_trans.pcd", *source_trans);

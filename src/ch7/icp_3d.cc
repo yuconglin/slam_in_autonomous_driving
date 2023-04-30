@@ -111,6 +111,112 @@ bool Icp3d::AlignP2P(SE3& init_pose) {
     return true;
 }
 
+bool Icp3d::AlignP2pReduce(SE3& init_pose) {
+    LOG(INFO) << "aligning with point to point";
+    assert(target_ != nullptr && source_ != nullptr);
+
+    SE3 pose = init_pose;
+    if (!options_.use_initial_translation_) {
+        pose.translation() = target_center_ - source_center_;  // 设置平移初始值
+    }
+
+    // 对点的索引，预先生成
+    std::vector<int> index(source_->points.size());
+    for (int i = 0; i < index.size(); ++i) {
+        index[i] = i;
+    }
+
+    // 我们来写一些并发代码
+    struct PointInfo {
+        int effect{};
+        Eigen::Matrix<double, 3, 6> jacobian{};
+        Vec3d error{};
+    };
+    std::vector<PointInfo> point_infos(index.size());
+
+    struct SumInfo {
+        Mat6d H{};      // Hessian.
+        Vec6d error{};  // error
+        int effective_num{};
+        double residual{};
+    };
+
+    for (int iter = 0; iter < options_.max_iteration_; ++iter) {
+        // gauss-newton 迭代
+        // 最近邻，可以并发
+        std::for_each(std::execution::par_unseq, index.begin(), index.end(), [&](int idx) {
+            auto q = ToVec3d(source_->points[idx]);
+            Vec3d qs = pose * q;  // 转换之后的q
+            std::vector<int> nn;
+            kdtree_->GetClosestPoint(ToPointType(qs), nn, 1);
+
+            if (!nn.empty()) {
+                Vec3d p = ToVec3d(target_->points[nn[0]]);
+                double dis2 = (p - qs).squaredNorm();
+                if (dis2 > options_.max_nn_distance_) {
+                    // 点离的太远了不要
+                    point_infos[idx].effect = 0;
+                    return;
+                }
+
+                point_infos[idx].effect = 1;
+
+                // build residual
+                point_infos[idx].jacobian.block<3, 3>(0, 0) = pose.so3().matrix() * SO3::hat(q);
+                point_infos[idx].jacobian.block<3, 3>(0, 3) = -Mat3d::Identity();
+                point_infos[idx].error = p - qs;
+            } else {
+                // We don't need to do anything.
+            }
+        });
+
+        // 累加Hessian和error,计算dx
+
+        const SumInfo sum_info = std::transform_reduce(
+            std::execution::par, point_infos.begin(), point_infos.end(), SumInfo{},
+            /*function for summation*/
+            [](const SumInfo& a, const SumInfo& b) {
+                return SumInfo{.H = a.H + b.H,
+                               .error = a.error + b.error,
+                               .effective_num = a.effective_num + b.effective_num,
+                               .residual = a.residual + b.residual};
+            },
+            /*function for transform*/
+            [](const PointInfo& point_info) {
+                return SumInfo{.H = point_info.jacobian.transpose() * point_info.jacobian,
+                               .error = -point_info.jacobian.transpose() * point_info.error,
+                               .effective_num = point_info.effect,
+                               .residual = point_info.error.squaredNorm()};
+            });
+
+        if (sum_info.effective_num < options_.min_effective_pts_) {
+            LOG(WARNING) << "effective num too small: " << sum_info.effective_num;
+            return false;
+        }
+
+        const Vec6d dx = sum_info.H.inverse() * sum_info.error;
+        pose.so3() = pose.so3() * SO3::exp(dx.head<3>());
+        pose.translation() += dx.tail<3>();
+
+        // 更新
+        LOG(INFO) << "iter " << iter << " total res: " << sum_info.residual << ", eff: " << sum_info.effective_num
+                  << ", mean res: " << sum_info.residual / sum_info.effective_num << ", dxn: " << dx.norm();
+
+        if (gt_set_) {
+            double pose_error = (gt_pose_.inverse() * pose).log().norm();
+            LOG(INFO) << "iter " << iter << " pose error: " << pose_error;
+        }
+
+        if (dx.norm() < options_.eps_) {
+            LOG(INFO) << "converged, dx = " << dx.transpose();
+            break;
+        }
+    }
+
+    init_pose = pose;
+    return true;
+}
+
 bool Icp3d::AlignP2Plane(SE3& init_pose) {
     LOG(INFO) << "aligning with point to plane";
     assert(target_ != nullptr && source_ != nullptr);
