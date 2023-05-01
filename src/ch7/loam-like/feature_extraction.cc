@@ -2,6 +2,9 @@
 // Created by xiang on 2022/7/21.
 //
 #include "ch7/loam-like/feature_extraction.h"
+
+#include <execution>
+
 #include <glog/logging.h>
 
 namespace sad {
@@ -29,7 +32,7 @@ void FeatureExtraction::Extract(FullCloudPtr pc_in, CloudPtr pc_out_edge, CloudP
         if (scans_in_each_line[i]->points.size() < 131) {
             continue;
         }
-
+        /*
         std::vector<IdAndValue> cloud_curvature;  // 每条线对应的曲率
         int total_points = scans_in_each_line[i]->points.size() - 10;
         for (int j = 5; j < (int)scans_in_each_line[i]->points.size() - 5; j++) {
@@ -55,6 +58,35 @@ void FeatureExtraction::Extract(FullCloudPtr pc_in, CloudPtr pc_out_edge, CloudP
             IdAndValue distance(j, diffX * diffX + diffY * diffY + diffZ * diffZ);
             cloud_curvature.push_back(distance);
         }
+        */
+        // From j = 5 to scans_in_each_line[i]->points.size() - 5 (end not included).
+        const int total_points = scans_in_each_line[i]->points.size() - 10;
+        std::vector<IdAndValue> cloud_curvature(total_points);
+        std::vector<int> scan_indice(total_points);
+        std::iota(scan_indice.begin(), scan_indice.end(), 5);
+        std::for_each(std::execution::par_unseq, scan_indice.begin(), scan_indice.end(), [&](int j) {
+            assert(j >= 5 && j + 5 < total_points + 10);
+            // 两头留一定余量，采样周围10个点取平均值
+            const double diffX = scans_in_each_line[i]->points[j - 5].x + scans_in_each_line[i]->points[j - 4].x +
+                                 scans_in_each_line[i]->points[j - 3].x + scans_in_each_line[i]->points[j - 2].x +
+                                 scans_in_each_line[i]->points[j - 1].x - 10 * scans_in_each_line[i]->points[j].x +
+                                 scans_in_each_line[i]->points[j + 1].x + scans_in_each_line[i]->points[j + 2].x +
+                                 scans_in_each_line[i]->points[j + 3].x + scans_in_each_line[i]->points[j + 4].x +
+                                 scans_in_each_line[i]->points[j + 5].x;
+            const double diffY = scans_in_each_line[i]->points[j - 5].y + scans_in_each_line[i]->points[j - 4].y +
+                                 scans_in_each_line[i]->points[j - 3].y + scans_in_each_line[i]->points[j - 2].y +
+                                 scans_in_each_line[i]->points[j - 1].y - 10 * scans_in_each_line[i]->points[j].y +
+                                 scans_in_each_line[i]->points[j + 1].y + scans_in_each_line[i]->points[j + 2].y +
+                                 scans_in_each_line[i]->points[j + 3].y + scans_in_each_line[i]->points[j + 4].y +
+                                 scans_in_each_line[i]->points[j + 5].y;
+            const double diffZ = scans_in_each_line[i]->points[j - 5].z + scans_in_each_line[i]->points[j - 4].z +
+                                 scans_in_each_line[i]->points[j - 3].z + scans_in_each_line[i]->points[j - 2].z +
+                                 scans_in_each_line[i]->points[j - 1].z - 10 * scans_in_each_line[i]->points[j].z +
+                                 scans_in_each_line[i]->points[j + 1].z + scans_in_each_line[i]->points[j + 2].z +
+                                 scans_in_each_line[i]->points[j + 3].z + scans_in_each_line[i]->points[j + 4].z +
+                                 scans_in_each_line[i]->points[j + 5].z;
+            cloud_curvature[j - 5] = IdAndValue(j, diffX * diffX + diffY * diffY + diffZ * diffZ);
+        });
 
         // 对每个区间选取特征，把360度分为6个区间
         for (int j = 0; j < 6; j++) {
