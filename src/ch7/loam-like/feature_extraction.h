@@ -33,6 +33,8 @@ class FeatureExtraction {
      */
     void Extract(FullCloudPtr pc_in, CloudPtr pc_out_edge, CloudPtr pc_out_surf);
 
+    void ExtractWithGround(FullCloudPtr pc_in, CloudPtr pc_out_ground, CloudPtr pc_out_edge, CloudPtr pc_out_surf);
+
     /**
      * 对单独一段区域提取角点和面点
      * @param pc_in
@@ -44,6 +46,7 @@ class FeatureExtraction {
                            CloudPtr& pc_out_surf);
 
    private:
+     
 };
 
 }  // namespace sad

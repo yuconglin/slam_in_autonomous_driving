@@ -25,6 +25,7 @@ int main(int argc, char** argv) {
     system("rm -rf ./data/ch7/*.pcd");
 
     sad::RosbagIO bag_io(fLS::FLAGS_bag_path);
+    /*
     bag_io
         .AddVelodyneHandle("/velodyne_packets_1",
                            [&](sad::FullCloudPtr cloud) -> bool {
@@ -39,7 +40,25 @@ int main(int argc, char** argv) {
                                return true;
                            })
         .Go();
-
+    */
+    bag_io
+        .AddVelodyneHandle(
+            "/velodyne_packets_1",
+            [&](sad::FullCloudPtr cloud) -> bool {
+                sad::CloudPtr pcd_corner(new sad::PointCloudType);
+                sad::CloudPtr pcd_surf(new sad::PointCloudType);
+                sad::CloudPtr pcd_ground(new sad::PointCloudType);
+                sad::common::Timer::Evaluate(
+                    [&]() { feature_extraction.ExtractWithGround(cloud, pcd_ground, pcd_corner, pcd_surf); },
+                    "Feature Extraction");
+                LOG(INFO) << "original pts:" << cloud->size() << ", corners: " << pcd_corner->size()
+                          << ", surf: " << pcd_surf->size() << ", ground: " << pcd_ground->size();
+                pcl::io::savePCDFileBinary("./data/ch7/corner.pcd", *pcd_corner);
+                pcl::io::savePCDFileBinary("./data/ch7/surf.pcd", *pcd_surf);
+                pcl::io::savePCDFileBinary("./data/ch7/ground.pcd", *pcd_ground);
+                return true;
+            })
+        .Go();
     sad::common::Timer::PrintAll();
     LOG(INFO) << "done.";
 

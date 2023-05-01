@@ -29,7 +29,11 @@ int main(int argc, char** argv) {
     bag_io
         .AddVelodyneHandle(FLAGS_topic,
                            [&](sad::FullCloudPtr cloud) -> bool {
-                               sad::common::Timer::Evaluate([&]() { lo.ProcessPointCloud(cloud); }, "Loam-like odom");
+                               sad::common::Timer::Evaluate(
+                                   [&]() {  // lo.ProcessPointCloud(cloud);
+                                       lo.ProcessPointCloudWithGround(cloud);
+                                   },
+                                   "Loam-like odom");
                                return true;
                            })
         .Go();

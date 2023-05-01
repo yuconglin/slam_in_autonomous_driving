@@ -2,12 +2,57 @@
 // Created by xiang on 2022/7/21.
 //
 #include "ch7/loam-like/feature_extraction.h"
+#include "common/math_utils.h"
 
 #include <execution>
 
 #include <glog/logging.h>
 
 namespace sad {
+namespace {
+constexpr double kGroundThreshold = 0.1;  // [m]
+
+void SeparateGround(FullCloudPtr pc_in, CloudPtr pc_out_ground, FullCloudPtr pc_out_rest) {
+    std::vector<int> low_indice;
+    std::vector<Vec3d> low_points;
+    for (int i = 0; i < pc_in->points.size(); ++i) {
+        const auto &pt = pc_in->points[i];
+        if (pt.z < kGroundThreshold) {
+            low_indice.emplace_back(i);
+            low_points.emplace_back(pt.x, pt.y, pt.z);
+        } else {
+            pc_out_rest->push_back(pt);
+        }
+    }
+
+    LOG(INFO) << "low points size: " << low_points.size();
+    Vec4d plane_coeffs;
+    if (!math::FitPlane(low_points, plane_coeffs, /*very big threshold*/ 1e2)) {
+        // all the points will be included in pc_out_rest.
+        LOG(INFO) << "no points were close to the plane !";
+        for (int idx : low_indice) {
+            pc_out_rest->push_back(pc_in->points[idx]);
+        }
+        return;
+    }
+
+    for (int j = 0; j < low_indice.size(); ++j) {
+        // get the points close to the plane
+        const double err = low_points[j].dot(plane_coeffs.head<3>()) + plane_coeffs[3];
+        if (err * err < 0.04) {
+            const auto &pt = pc_in->points[low_indice[j]];
+            PointType p;
+            p.x = pt.x;
+            p.y = pt.y;
+            p.z = pt.z;
+            p.intensity = pt.intensity;
+            pc_out_ground->push_back(p);
+        } else {
+            pc_out_rest->push_back(pc_in->points[low_indice[j]]);
+        }
+    }
+}
+}  // namespace
 
 void FeatureExtraction::Extract(FullCloudPtr pc_in, CloudPtr pc_out_edge, CloudPtr pc_out_surf) {
     int num_scans = 16;
@@ -32,7 +77,6 @@ void FeatureExtraction::Extract(FullCloudPtr pc_in, CloudPtr pc_out_edge, CloudP
         if (scans_in_each_line[i]->points.size() < 131) {
             continue;
         }
-        /*
         std::vector<IdAndValue> cloud_curvature;  // 每条线对应的曲率
         int total_points = scans_in_each_line[i]->points.size() - 10;
         for (int j = 5; j < (int)scans_in_each_line[i]->points.size() - 5; j++) {
@@ -58,7 +102,7 @@ void FeatureExtraction::Extract(FullCloudPtr pc_in, CloudPtr pc_out_edge, CloudP
             IdAndValue distance(j, diffX * diffX + diffY * diffY + diffZ * diffZ);
             cloud_curvature.push_back(distance);
         }
-        */
+        /*
         // From j = 5 to scans_in_each_line[i]->points.size() - 5 (end not included).
         const int total_points = scans_in_each_line[i]->points.size() - 10;
         std::vector<IdAndValue> cloud_curvature(total_points);
@@ -87,7 +131,7 @@ void FeatureExtraction::Extract(FullCloudPtr pc_in, CloudPtr pc_out_edge, CloudP
                                  scans_in_each_line[i]->points[j + 5].z;
             cloud_curvature[j - 5] = IdAndValue(j, diffX * diffX + diffY * diffY + diffZ * diffZ);
         });
-
+        */
         // 对每个区间选取特征，把360度分为6个区间
         for (int j = 0; j < 6; j++) {
             int sector_length = (int)(total_points / 6);
@@ -103,6 +147,15 @@ void FeatureExtraction::Extract(FullCloudPtr pc_in, CloudPtr pc_out_edge, CloudP
             ExtractFromSector(scans_in_each_line[i], sub_cloud_curvature, pc_out_edge, pc_out_surf);
         }
     }
+}
+
+void FeatureExtraction::ExtractWithGround(FullCloudPtr pc_in, CloudPtr pc_out_ground, CloudPtr pc_out_edge,
+                                          CloudPtr pc_out_surf) {
+    // Separate the ground and non-ground points.
+    CloudPtr current_surf(new PointCloudType);
+    FullCloudPtr pc_out_rest(new FullPointCloudType);
+    SeparateGround(pc_in, pc_out_ground, pc_out_rest);
+    Extract(pc_out_rest, pc_out_edge, pc_out_surf);
 }
 
 void FeatureExtraction::ExtractFromSector(const CloudPtr &pc_in, std::vector<IdAndValue> &cloud_curvature,
