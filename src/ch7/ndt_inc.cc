@@ -334,4 +334,51 @@ void IncNdt3d::BuildNDTEdges(sad::VertexPose* v, std::vector<EdgeNDT*>& edges) {
     }
 }
 
+std::vector<EdgeNdtSimple*> IncNdt3d::CreateNdtEdges(VertexPose* v0) {
+    assert(v0 != nullptr);
+    assert(!grids_.empty());
+
+    const SE3 pose = v0->estimate();
+    // 对点的索引，预先生成
+    int num_residual_per_point = 1;
+    if (options_.nearby_type_ == NearbyType::NEARBY6) {
+        num_residual_per_point = 7;
+    }
+
+    std::vector<int> index(source_->points.size());
+    std::iota(index.begin(), index.end(), 0);
+    const int total_size = index.size() * num_residual_per_point;
+    std::vector<EdgeNdtSimple*> edges(total_size, nullptr);
+
+    // 我们来写一些并发代码
+    std::for_each(std::execution::par_unseq, index.begin(), index.end(), [&](int idx) {
+        const Vec3d pt = ToVec3d(source_->points[idx]);
+        const Vec3d qs = pose * pt;
+        // 计算qs所在的栅格以及它的最近邻栅格
+        const Vec3i key = (qs * options_.inv_voxel_size_).cast<int>();
+
+        for (int i = 0; i < nearby_grids_.size(); ++i) {
+            const Vec3i real_key = key + nearby_grids_[i];
+            const auto it = grids_.find(real_key);
+            const int real_idx = idx * num_residual_per_point + i;
+            /// 这里要检查高斯分布是否已经估计
+            if (it != grids_.end() && it->second->second.ndt_estimated_) {
+                auto& v = it->second->second;  // voxel
+                Vec3d e = qs - v.mu_;
+                /*
+                // check chi2 th
+                double res = e.transpose() * v.info_ * e;
+                if (std::isnan(res) || res > options_.res_outlier_th_) {
+                    continue;
+                }
+                */
+                // Add a new edge.
+                edges[real_idx] = new EdgeNdtSimple(v0, pt, v.mu_, v.info_);
+            }
+        }
+    });
+
+    return edges;
+}
+
 }  // namespace sad

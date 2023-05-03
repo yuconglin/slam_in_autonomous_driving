@@ -59,6 +59,8 @@ class LioPreinteg {
     /// 结束程序，退出UI
     void Finish();
 
+    void SetUseNdtResidual(bool use) { use_ndt_residual_ = use; }
+
    private:
     bool LoadFromYAML(const std::string& yaml_file);
 
@@ -81,8 +83,10 @@ class LioPreinteg {
     /// 执行预积分+NDT pose优化
     void Optimize();
 
+    void OptimizeWithNdtResidual();
+
     /// 将速度限制在正常区间
-    void NormalizeVelocity();
+    void NormalizeVelocity(const SO3& R, Vec3d& v);
 
     /// modules
     std::shared_ptr<MessageSync> sync_ = nullptr;
@@ -115,6 +119,7 @@ class LioPreinteg {
 
     Options options_;
     std::shared_ptr<ui::PangolinWindow> ui_ = nullptr;
+    bool use_ndt_residual_ = false;
 };
 
 }  // namespace sad

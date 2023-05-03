@@ -24,11 +24,13 @@ class IncNdt3d {
     };
 
     struct Options {
-        int max_iteration_ = 4;        // 最大迭代次数
+        int max_iteration_ = 4;  // 最大迭代次数
+        // double voxel_size_ = 2.0;  // 体素大小 for tight coupling ndt lio.
         double voxel_size_ = 1.0;      // 体素大小
         double inv_voxel_size_ = 1.0;  // 体素大小之逆
         int min_effective_pts_ = 10;   // 最近邻点数阈值
         int min_pts_in_voxel_ = 5;     // 每个栅格中最小点数
+        // int max_pts_in_voxel_ = 100;   // 每个栅格中最大点数 for tight coupling ndt lio.
         int max_pts_in_voxel_ = 50;    // 每个栅格中最大点数
         double eps_ = 1e-3;            // 收敛判定条件
         double res_outlier_th_ = 5.0;  // 异常值拒绝阈值
@@ -84,6 +86,10 @@ class IncNdt3d {
 
     /// 使用gauss-newton方法进行ndt配准
     bool AlignNdt(SE3& init_pose);
+
+    /// The edges will be eventually destroied by the optimizer.
+    /// Here we assume that the VertexPose node has an initial pose.
+    std::vector<EdgeNdtSimple*> CreateNdtEdges(VertexPose* v0);
 
     /**
      * 计算给定Pose下的雅可比和残差矩阵，符合IEKF中符号（8.17, 8.19）

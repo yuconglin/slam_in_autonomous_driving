@@ -118,9 +118,12 @@ void LioPreinteg::Align() {
     current_nav_state_ = preinteg_->Predict(last_nav_state_, imu_init_.GetGravity());
     ndt_pose_ = current_nav_state_.GetSE3();
 
-    ndt_.AlignNdt(ndt_pose_);
-
-    Optimize();
+    if (use_ndt_residual_) {
+        OptimizeWithNdtResidual();
+    } else {
+        ndt_.AlignNdt(ndt_pose_);
+        Optimize();
+    }
 
     // 若运动了一定范围，则把点云放入地图中
     SE3 current_pose = current_nav_state_.GetSE3();
@@ -394,30 +397,241 @@ void LioPreinteg::Optimize() {
         LOG(INFO) << "optimization done.";
     }
 
-    NormalizeVelocity();
+    NormalizeVelocity(current_nav_state_.R_, current_nav_state_.v_);
     last_nav_state_ = current_nav_state_;
 }
 
-void LioPreinteg::NormalizeVelocity() {
+void LioPreinteg::OptimizeWithNdtResidual() {
+    LOG(INFO) << " === optimizing frame " << frame_num_ << " === "
+              << ", dt: " << preinteg_->dt_;
+
+    using BlockSolverType = g2o::BlockSolverX;
+    using LinearSolverType = g2o::LinearSolverEigen<BlockSolverType::PoseMatrixType>;
+
+    // For nodes and edges that are not related to NDT.
+    g2o::SparseOptimizer optimizer;
+    auto *solver = new g2o::OptimizationAlgorithmLevenberg(
+        g2o::make_unique<BlockSolverType>(g2o::make_unique<LinearSolverType>()));
+    optimizer.setAlgorithm(solver);
+
+    // 上时刻顶点， pose, v, bg, ba
+    auto v0_pose = new VertexPose();
+    v0_pose->setId(0);
+    v0_pose->setEstimate(last_nav_state_.GetSE3());
+    optimizer.addVertex(v0_pose);
+
+    auto v0_vel = new VertexVelocity();
+    v0_vel->setId(1);
+    v0_vel->setEstimate(last_nav_state_.v_);
+    optimizer.addVertex(v0_vel);
+
+    auto v0_bg = new VertexGyroBias();
+    v0_bg->setId(2);
+    v0_bg->setEstimate(last_nav_state_.bg_);
+    optimizer.addVertex(v0_bg);
+
+    auto v0_ba = new VertexAccBias();
+    v0_ba->setId(3);
+    v0_ba->setEstimate(last_nav_state_.ba_);
+    optimizer.addVertex(v0_ba);
+
+    // 本时刻顶点，pose, v, bg, ba
+    auto v1_pose = new VertexPose();
+    v1_pose->setId(4);
+    v1_pose->setEstimate(ndt_pose_);
+    optimizer.addVertex(v1_pose);
+
+    auto v1_vel = new VertexVelocity();
+    v1_vel->setId(5);
+    v1_vel->setEstimate(current_nav_state_.v_);
+    optimizer.addVertex(v1_vel);
+
+    auto v1_bg = new VertexGyroBias();
+    v1_bg->setId(6);
+    v1_bg->setEstimate(current_nav_state_.bg_);
+    optimizer.addVertex(v1_bg);
+
+    auto v1_ba = new VertexAccBias();
+    v1_ba->setId(7);
+    v1_ba->setEstimate(current_nav_state_.ba_);
+    optimizer.addVertex(v1_ba);
+
+    v0_bg->setFixed(true);
+    v0_ba->setFixed(true);
+
+    // imu factor
+    auto edge_inertial = new EdgeInertial(preinteg_, imu_init_.GetGravity());
+    edge_inertial->setVertex(0, v0_pose);
+    edge_inertial->setVertex(1, v0_vel);
+    edge_inertial->setVertex(2, v0_bg);
+    edge_inertial->setVertex(3, v0_ba);
+    edge_inertial->setVertex(4, v1_pose);
+    edge_inertial->setVertex(5, v1_vel);
+    auto *rk = new g2o::RobustKernelHuber();
+    rk->setDelta(200.0);
+    edge_inertial->setRobustKernel(rk);
+    optimizer.addEdge(edge_inertial);
+
+    // 零偏随机游走
+    auto *edge_gyro_rw = new EdgeGyroRW();
+    edge_gyro_rw->setVertex(0, v0_bg);
+    edge_gyro_rw->setVertex(1, v1_bg);
+    edge_gyro_rw->setInformation(options_.bg_rw_info_);
+    optimizer.addEdge(edge_gyro_rw);
+
+    auto *edge_acc_rw = new EdgeAccRW();
+    edge_acc_rw->setVertex(0, v0_ba);
+    edge_acc_rw->setVertex(1, v1_ba);
+    edge_acc_rw->setInformation(options_.ba_rw_info_);
+    optimizer.addEdge(edge_acc_rw);
+
+    // 上一帧pose, vel, bg, ba的先验
+    auto *edge_prior = new EdgePriorPoseNavState(last_nav_state_, prior_info_);
+    edge_prior->setVertex(0, v0_pose);
+    edge_prior->setVertex(1, v0_vel);
+    edge_prior->setVertex(2, v0_bg);
+    edge_prior->setVertex(3, v0_ba);
+    optimizer.addEdge(edge_prior);
+
+    const auto get_ndt_hessians = [](const std::vector<EdgeNdtSimple *> &ndt_edges) -> Mat6d {
+        Mat6d sum = Mat6d::Zero();
+        for (auto *e : ndt_edges) {
+            if (e && e->IsValid()) {
+                sum += e->GetHessian();
+            }
+        }
+        return sum;
+    };
+    Mat6d ndt_hessian;
+
+    /// NOTE 这些东西是对参数非常敏感的。相差几个数量级的话，容易出现优化不动的情况
+    const int iterations = 10;
+    double cost = 0;
+    double last_cost = 0;
+
+    for (int iter = 0; iter < iterations; ++iter) {
+        edge_inertial->computeError();
+        cost += edge_inertial->chi2();
+        edge_gyro_rw->computeError();
+        cost += edge_gyro_rw->chi2();
+        edge_acc_rw->computeError();
+        cost += edge_acc_rw->chi2();
+        edge_prior->computeError();
+        cost += edge_prior->chi2();
+
+        // Ndt residual edges.
+        const std::vector<EdgeNdtSimple *> ndt_edges = ndt_.CreateNdtEdges(v1_pose);
+        /*
+        std::vector<EdgeNDT *> ndt_edges;
+        ndt_.BuildNDTEdges(v1_pose, ndt_edges);
+        */
+        for (auto *e : ndt_edges) {
+            if (!e || !e->IsValid()) {
+                continue;
+            }
+            // vertex was already set.
+            optimizer.addEdge(e);
+            e->computeError();
+            cost += e->chi2();
+        }
+
+        // go
+        // optimizer.setVerbose(options_.verbose_);
+        optimizer.setVerbose(false);
+        optimizer.initializeOptimization();
+        optimizer.optimize(20);
+
+        ndt_hessian = get_ndt_hessians(ndt_edges);
+
+        // Remove and unlink Ndt residual edges.
+        for (auto *e : ndt_edges) {
+            if (e && e->IsValid()) {
+                optimizer.removeEdge(e);
+            }
+        }
+
+        LOG(INFO) << "----------------iter: " << iter << " ,cost: " << cost;
+        if (iter > 0 && std::abs(cost - last_cost) < 1e-4) {
+            break;
+        }
+
+        last_cost = cost;
+        cost = 0;
+
+        Vec3d v1_vel_updated = v1_vel->estimate();
+        NormalizeVelocity(v1_pose->estimate().so3(), v1_vel_updated);
+        v1_vel->setEstimate(v1_vel_updated);
+    }
+
+    // get results
+    last_nav_state_.R_ = v0_pose->estimate().so3();
+    last_nav_state_.p_ = v0_pose->estimate().translation();
+    last_nav_state_.v_ = v0_vel->estimate();
+    last_nav_state_.bg_ = v0_bg->estimate();
+    last_nav_state_.ba_ = v0_ba->estimate();
+
+    current_nav_state_.R_ = v1_pose->estimate().so3();
+    current_nav_state_.p_ = v1_pose->estimate().translation();
+    current_nav_state_.v_ = v1_vel->estimate();
+    current_nav_state_.bg_ = v1_bg->estimate();
+    current_nav_state_.ba_ = v1_ba->estimate();
+
+    if (options_.verbose_) {
+        LOG(INFO) << "last changed to: " << last_nav_state_;
+        LOG(INFO) << "curr changed to: " << current_nav_state_;
+        LOG(INFO) << "preinteg chi2: " << edge_inertial->chi2() << ", err: " << edge_inertial->error().transpose();
+        LOG(INFO) << "prior chi2: " << edge_prior->chi2() << ", err: " << edge_prior->error().transpose();
+    }
+
+    /// 重置预积分
+
+    options_.preinteg_options_.init_bg_ = current_nav_state_.bg_;
+    options_.preinteg_options_.init_ba_ = current_nav_state_.ba_;
+    preinteg_ = std::make_shared<IMUPreintegration>(options_.preinteg_options_);
+
+    // 计算当前时刻先验
+    // 构建hessian
+    // 15x2，顺序：v0_pose, v0_vel, v0_bg, v0_ba, v1_pose, v1_vel, v1_bg, v1_ba
+    //            0       6        9     12     15        21      24     27
+    Eigen::Matrix<double, 30, 30> H;
+    H.setZero();
+
+    H.block<24, 24>(0, 0) += edge_inertial->GetHessian();
+
+    Eigen::Matrix<double, 6, 6> Hgr = edge_gyro_rw->GetHessian();
+    H.block<3, 3>(9, 9) += Hgr.block<3, 3>(0, 0);
+    H.block<3, 3>(9, 24) += Hgr.block<3, 3>(0, 3);
+    H.block<3, 3>(24, 9) += Hgr.block<3, 3>(3, 0);
+    H.block<3, 3>(24, 24) += Hgr.block<3, 3>(3, 3);
+
+    Eigen::Matrix<double, 6, 6> Har = edge_acc_rw->GetHessian();
+    H.block<3, 3>(12, 12) += Har.block<3, 3>(0, 0);
+    H.block<3, 3>(12, 27) += Har.block<3, 3>(0, 3);
+    H.block<3, 3>(27, 12) += Har.block<3, 3>(3, 0);
+    H.block<3, 3>(27, 27) += Har.block<3, 3>(3, 3);
+
+    H.block<15, 15>(0, 0) += edge_prior->GetHessian();
+    H.block<6, 6>(15, 15) += ndt_hessian;
+
+    H = math::Marginalize(H, 0, 14);
+    prior_info_ = H.block<15, 15>(15, 15);
+
+    if (options_.verbose_) {
+        LOG(INFO) << "info trace: " << prior_info_.trace();
+        LOG(INFO) << "optimization done.";
+    }
+
+    NormalizeVelocity(current_nav_state_.R_, current_nav_state_.v_);
+    last_nav_state_ = current_nav_state_;
+}
+
+void LioPreinteg::NormalizeVelocity(const SO3 &R, Vec3d &v) {
     /// 限制v的变化
-    /// 一般是-y 方向速度
-    Vec3d v_body = current_nav_state_.R_.inverse() * current_nav_state_.v_;
-    if (v_body[1] > 0) {
-        v_body[1] = 0;
-    }
+    Vec3d v_body = R.inverse() * v;
     v_body[2] = 0;
-
-    if (v_body[1] < -2.0) {
-        v_body[1] = -2.0;
-    }
-
-    if (v_body[0] > 0.1) {
-        v_body[0] = 0.1;
-    } else if (v_body[0] < -0.1) {
-        v_body[0] = -0.1;
-    }
-
-    current_nav_state_.v_ = current_nav_state_.R_ * v_body;
+    v_body[0] = 0;
+    v_body[1] = std::min(4.0, std::abs(v_body[1])) * (v_body[1] > 0 ? 1 : -1);
+    v = R * v_body;
 }
 
 }  // namespace sad

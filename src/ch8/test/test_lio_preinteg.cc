@@ -14,6 +14,7 @@ DEFINE_string(bag_path, "./dataset/sad/ulhk/test3.bag", "path to rosbag");
 DEFINE_string(dataset_type, "ULHK", "NCLT/ULHK/UTBM/AVIA");                   // 数据集类型
 DEFINE_string(config, "./config/velodyne_ulhk.yaml", "path of config yaml");  // 配置文件类型
 DEFINE_bool(display_map, true, "display map?");
+DEFINE_bool(use_ndt_residual, true, "use NDT residual directly.");
 
 int main(int argc, char** argv) {
     google::InitGoogleLogging(argv[0]);
@@ -25,6 +26,7 @@ int main(int argc, char** argv) {
 
     sad::LioPreinteg lio;
     lio.Init(FLAGS_config);
+    lio.SetUseNdtResidual(FLAGS_use_ndt_residual);
 
     rosbag_io
         .AddAutoPointCloudHandle([&](sensor_msgs::PointCloud2::Ptr cloud) -> bool {

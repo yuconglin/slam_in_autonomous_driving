@@ -424,6 +424,54 @@ class EdgeNDT : public g2o::BaseUnaryEdge<3, Vec3d, VertexPose> {
     Mat3d info_ = Mat3d::Identity();
     bool valid_ = false;
 };
+
+/**
+ * NDT误差模型: the simple version
+ * 残差是 Rp+t-mu，info为NDT内部估计的info
+ */
+class EdgeNdtSimple : public g2o::BaseUnaryEdge<3, Vec3d, VertexPose> {
+   public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+    EdgeNdtSimple() = default;
+
+    EdgeNdtSimple(VertexPose* v0, const Vec3d& pt, const Vec3d& mu, const Mat3d& info) : pt_(pt), mu_(mu), info_(info) {
+        setVertex(0, v0);
+        setInformation(info_);
+    }
+
+    bool IsValid() const { return valid_; }
+
+    Mat6d GetHessian() {
+        linearizeOplus();
+        return _jacobianOplusXi.transpose() * info_ * _jacobianOplusXi;
+    }
+
+    /// 残差计算
+    void computeError() override {
+        VertexPose* v0 = (VertexPose*)_vertices[0];
+        _error = v0->estimate() * pt_ - mu_;
+    }
+
+    /// 线性化
+    void linearizeOplus() override {
+        VertexPose* v0 = (VertexPose*)_vertices[0];
+        SO3 R = v0->estimate().so3();
+
+        _jacobianOplusXi.setZero();
+        _jacobianOplusXi.block<3, 3>(0, 0) = -R.matrix() * SO3::hat(pt_);  // 对R
+        _jacobianOplusXi.block<3, 3>(0, 3) = Mat3d::Identity();            // 对p
+    }
+
+    virtual bool read(std::istream& in) { return true; }
+    virtual bool write(std::ostream& out) const { return true; }
+
+   private:
+    Vec3d pt_ = Vec3d::Zero();
+    Vec3d mu_ = Vec3d::Zero();
+    Mat3d info_ = Mat3d::Identity();
+    bool valid_ = true;
+};
+
 }  // namespace sad
 
 #endif  // SLAM_IN_AUTO_DRIVING_G2O_TYPES_H
