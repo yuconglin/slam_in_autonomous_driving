@@ -31,7 +31,9 @@ class FeatureExtraction {
      * @param pc_out_edge   输出角点的点云
      * @param pc_out_surf   输出平面的点云
      */
-    void Extract(FullCloudPtr pc_in, CloudPtr pc_out_edge, CloudPtr pc_out_surf);
+    void Extract(FullCloudPtr pc_in, CloudPtr pc_out_edge, CloudPtr pc_out_surf, int num_scans = 16);
+
+    void ExtractSurfAndOther(FullCloudPtr pc_in, CloudPtr pc_out_other, CloudPtr pc_out_surf, int num_scans);
 
     void ExtractWithGround(FullCloudPtr pc_in, CloudPtr pc_out_ground, CloudPtr pc_out_edge, CloudPtr pc_out_surf);
 
@@ -45,8 +47,10 @@ class FeatureExtraction {
     void ExtractFromSector(const CloudPtr& pc_in, std::vector<IdAndValue>& cloud_curvature, CloudPtr& pc_out_edge,
                            CloudPtr& pc_out_surf);
 
+    void ExtractFromSectorSurfAndOther(const CloudPtr& pc_in, std::vector<IdAndValue>& cloud_curvature,
+                                       CloudPtr& pc_out_other, CloudPtr& pc_out_surf);
+
    private:
-     
 };
 
 }  // namespace sad

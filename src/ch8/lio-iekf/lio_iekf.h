@@ -10,6 +10,7 @@
 #include "ch7/loosely_coupled_lio/cloud_convert.h"
 #include "ch7/loosely_coupled_lio/measure_sync.h"
 #include "ch7/ndt_inc.h"
+#include "ch8/lio-iekf/icp_3d_inc.h"
 #include "ch8/lio-iekf/iekf.hpp"
 
 #include "tools/ui/pangolin_window.h"
@@ -48,6 +49,8 @@ class LioIEKF {
     /// 获取当前扫描
     CloudPtr GetCurrentScan() const { return current_scan_; }
 
+    void SetUseIcp(bool use_icp) { use_icp_ = use_icp; }
+
    private:
     bool LoadFromYAML(const std::string& yaml_file);
 
@@ -79,6 +82,8 @@ class LioIEKF {
     IncNdt3d ndt_;
     SE3 last_pose_;
 
+    Icp3dInc icp_;
+
     // flags
     bool imu_need_init_ = true;
     bool flg_first_scan_ = true;
@@ -92,6 +97,8 @@ class LioIEKF {
 
     Options options_;
     std::shared_ptr<ui::PangolinWindow> ui_ = nullptr;
+
+    bool use_icp_ = false;  // Whether icp.
 };
 
 }  // namespace sad

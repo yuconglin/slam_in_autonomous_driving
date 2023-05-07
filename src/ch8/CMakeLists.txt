@@ -1,5 +1,6 @@
 add_library(${PROJECT_NAME}.ch8
         lio-iekf/lio_iekf.cc
+        lio-iekf/icp_3d_inc.cc
         lio-preinteg/lio_preinteg.cc
         )
 

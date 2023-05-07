@@ -71,6 +71,8 @@ bool LioIEKF::LoadFromYAML(const std::string &yaml_file) {
     Vec3d lidar_T_wrt_IMU = math::VecFromArray(ext_t);
     Mat3d lidar_R_wrt_IMU = math::MatFromArray(ext_r);
     TIL_ = SE3(lidar_R_wrt_IMU, lidar_T_wrt_IMU);
+    icp_.SetScanNumber(yaml["preprocess"]["scan_line"].as<int>());
+
     return true;
 }
 
@@ -91,7 +93,12 @@ void LioIEKF::Align() {
 
     /// the first scan
     if (flg_first_scan_) {
-        ndt_.AddCloud(current_scan_);
+        if (use_icp_) {
+            // icp_.AddCloud(current_scan_);
+            icp_.AddFirstFullCloud(scan_undistort_);
+        } else {
+            ndt_.AddCloud(current_scan_);
+        };
         flg_first_scan_ = false;
 
         // nav_state_prior_ = std::make_shared<PriorNavState>(last_nav_state_, Mat15d::Identity() * 1e4);
@@ -102,9 +109,20 @@ void LioIEKF::Align() {
     LOG(INFO) << "=== frame " << frame_num_;
     // pred_nav_state_ = ieskf_.GetNominalState();
 
-    ndt_.SetSource(current_scan_filter);
+    if (use_icp_) {
+        icp_.SetFullSource(scan_undistort_);
+        // icp_.SetSource(current_scan_filter);
+    } else {
+        ndt_.SetSource(current_scan_filter);
+    }
+
     ieskf_.UpdateUsingCustomObserve([this](const SE3 &input_pose, Mat18d &HTVH, Vec18d &HTVr) {
-        ndt_.ComputeResidualAndJacobians(input_pose, HTVH, HTVr);
+        if (use_icp_) {
+            // icp_.ComputeResidualAndJacobiansPointToPoint(input_pose, HTVH, HTVr);
+            icp_.ComputeResidualAndJacobiansSeparate(input_pose, HTVH, HTVr);
+        } else {
+            ndt_.ComputeResidualAndJacobians(input_pose, HTVH, HTVr);
+        }
     });
 
     auto current_nav_state = ieskf_.GetNominalState();
@@ -120,7 +138,12 @@ void LioIEKF::Align() {
         // 将地图合入NDT中
         CloudPtr current_scan_world(new PointCloudType);
         pcl::transformPointCloud(*current_scan_filter, *current_scan_world, current_pose.matrix());
-        ndt_.AddCloud(current_scan_world);
+        if (use_icp_) {
+            // icp_.AddCloud(current_scan_world);
+            icp_.AddCloudSeparate(current_pose);
+        } else {
+            ndt_.AddCloud(current_scan_world);
+        }
         last_pose_ = current_pose;
     }
 
