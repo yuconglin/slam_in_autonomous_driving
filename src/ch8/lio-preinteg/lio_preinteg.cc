@@ -228,6 +228,10 @@ void LioPreinteg::Optimize() {
     LOG(INFO) << " === optimizing frame " << frame_num_ << " === "
               << ", dt: " << preinteg_->dt_;
 
+    if (preinteg_->dt_ < 0.3) {
+        return;
+    }
+
     /// NOTE 这些东西是对参数非常敏感的。相差几个数量级的话，容易出现优化不动的情况
 
     using BlockSolverType = g2o::BlockSolverX;
