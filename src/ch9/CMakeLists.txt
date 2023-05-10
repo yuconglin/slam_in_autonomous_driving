@@ -7,6 +7,7 @@ add_library(${PROJECT_NAME}.ch9
 
 target_link_libraries(${PROJECT_NAME}.ch9
         ${PROJECT_NAME}.ch8
+        ${PROJECT_NAME}.ch7
         ${PROJECT_NAME}.ch4
         ${PROJECT_NAME}.ch3
         ${PROJECT_NAME}.tools

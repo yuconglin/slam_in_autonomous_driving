@@ -86,8 +86,11 @@ void LoopClosure::DetectLoopCandidates() {
 
 void LoopClosure::ComputeLoopCandidates() {
     // 执行计算
+    /*
     std::for_each(std::execution::par_unseq, loop_candiates_.begin(), loop_candiates_.end(),
                   [this](LoopCandidate& c) { ComputeForCandidate(c); });
+    */
+    std::for_each(loop_candiates_.begin(), loop_candiates_.end(), [this](LoopCandidate& c) { ComputeForCandidate(c); });
     // 保存成功的候选
     std::vector<LoopCandidate> succ_candidates;
     for (const auto& lc : loop_candiates_) {
@@ -151,7 +154,7 @@ void LoopClosure::ComputeForCandidate(sad::LoopCandidate& c) {
         c.ndt_score_ = 0;
         return;
     }
-
+    /*
     pcl::NormalDistributionsTransform<PointType, PointType> ndt;
 
     ndt.setTransformationEpsilon(0.05);
@@ -180,6 +183,23 @@ void LoopClosure::ComputeForCandidate(sad::LoopCandidate& c) {
     Vec3d t = T.block<3, 1>(0, 3);
     c.Tij_ = kf1->opti_pose_1_.inverse() * SE3(q, t);
     c.ndt_score_ = ndt.getTransformationProbability();
+    */
+    Ndt3d ndt;
+    const std::vector<double> res{10, 5, 4, 3};
+    Sophus::SE3d pose = kf2->opti_pose_1_;
+    for (double r : res) {
+        CloudPtr rough_map1 = VoxelCloud(submap_kf1, r * 0.1);
+        CloudPtr rough_map2 = VoxelCloud(submap_kf2, r * 0.1);
+        ndt.SetOptions(Ndt3d::Options{.voxel_size_ = r * 1.0,
+                                      .inv_voxel_size_ = 1.0 / r,
+                                      .min_effective_pts_ = 10 / r,
+                                      .res_outlier_th_ = 20.0 * r});
+        ndt.SetTarget(rough_map1);
+        ndt.SetSource(rough_map2);
+        ndt.AlignNdt(pose);
+    }
+    c.Tij_ = kf1->opti_pose_1_.inverse() * pose;
+    c.ndt_score_ = ndt.GetLikelihood();
 }
 
 void LoopClosure::SaveResults() {

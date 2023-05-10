@@ -9,6 +9,8 @@
 #include "common/point_types.h"
 #include "keyframe.h"
 
+#include "ch7/ndt_3d.h"
+
 namespace sad {
 
 /**

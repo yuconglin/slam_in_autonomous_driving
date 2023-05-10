@@ -18,8 +18,7 @@ void Ndt3d::BuildVoxels() {
 
     /// 分配体素
     std::vector<size_t> index(target_->size());
-    std::for_each(index.begin(), index.end(), [idx = 0](size_t& i) mutable { i = idx++; });
-
+    std::iota(index.begin(), index.end(), 0);
     std::for_each(index.begin(), index.end(), [this](const size_t& idx) {
         auto pt = ToVec3d(target_->points[idx]);
         auto key = (pt * options_.inv_voxel_size_).cast<int>();
@@ -157,6 +156,7 @@ bool Ndt3d::AlignNdt(SE3& init_pose) {
 
         if (effective_num < options_.min_effective_pts_) {
             LOG(WARNING) << "effective num too small: " << effective_num;
+            total_likelihood_ = 0.0;
             return false;
         }
 
@@ -169,6 +169,23 @@ bool Ndt3d::AlignNdt(SE3& init_pose) {
                   << ", mean res: " << total_res / effective_num << ", dxn: " << dx.norm()
                   << ", dx: " << dx.transpose();
 
+        constexpr double kCoefficent = std::pow(2 * M_PI, 1.5);
+        const auto compute_likelihood = [total_res, effective_num, &effect_pts, &infos]() {
+            double total_likelihood = 0.5 * total_res;
+            for (int idx = 0; idx < effect_pts.size(); ++idx) {
+                if (!effect_pts[idx]) {
+                    continue;
+                }
+                total_likelihood += std::log(kCoefficent * std::sqrt(1.0 / infos[idx].determinant()));
+            }
+            total_likelihood /= effective_num;
+            return total_likelihood;
+        };
+
+        if (iter + 1 == options_.max_iteration_) {
+            total_likelihood_ = compute_likelihood();
+        }
+
         // std::sort(chi2.begin(), chi2.end());
         // LOG(INFO) << "chi2 med: " << chi2[chi2.size() / 2] << ", .7: " << chi2[chi2.size() * 0.7]
         //           << ", .9: " << chi2[chi2.size() * 0.9] << ", max: " << chi2.back();
@@ -180,13 +197,14 @@ bool Ndt3d::AlignNdt(SE3& init_pose) {
 
         if (dx.norm() < options_.eps_) {
             LOG(INFO) << "converged, dx = " << dx.transpose();
+            total_likelihood_ = compute_likelihood();
             break;
         }
     }
 
     init_pose = pose;
     return true;
-}
+}  // namespace sad
 
 void Ndt3d::GenerateNearbyGrids() {
     if (options_.nearby_type_ == NearbyType::CENTER) {

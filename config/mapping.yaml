@@ -1,11 +1,11 @@
 YAML: 1.0
-bag_path: ./dataset/sad/nclt/20120429.bag
+bag_path: /home/yuconglin/slam_data/NCLT/20120115.bag
 lio_yaml: ./config/velodyne_nclt.yaml
 map_data: ./data/ch9/map_data/
 origin:
-  - 276727.9669506345
-  - 4685962.446515145
-  - 272.504
+  - 276727.1278250496
+  - 4685961.614857617
+  - 272.521
 rtk_has_rot: false
 rtk_outlier_th: 1.0
 rtk_pos_noise: 2.0
