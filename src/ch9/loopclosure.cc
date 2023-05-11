@@ -11,6 +11,7 @@
 #include <yaml-cpp/yaml.h>
 #include <execution>
 
+#include "ch7/ndt_3d.h"
 #include "common/lidar_utils.h"
 #include "common/point_cloud_utils.h"
 

@@ -10,6 +10,7 @@
 #include "fusion.h"
 
 DEFINE_string(config_yaml, "./config/mapping.yaml", "配置文件");
+DEFINE_bool(use_sad_ndt, false, "Whether to use SAD NDT.");
 
 int main(int argc, char** argv) {
     google::InitGoogleLogging(argv[0]);
@@ -21,6 +22,7 @@ int main(int argc, char** argv) {
     if (!fusion.Init()) {
         return -1;
     }
+    fusion.SetUseSadNdt(FLAGS_use_sad_ndt);
 
     auto yaml = YAML::LoadFile(FLAGS_config_yaml);
     auto bag_path = yaml["bag_path"].as<std::string>();

@@ -15,6 +15,7 @@
 
 #include "ch7/loosely_coupled_lio/cloud_convert.h"
 #include "ch7/loosely_coupled_lio/measure_sync.h"
+#include "ch7/ndt_3d.h"
 
 #include "tools/ui/pangolin_window.h"
 
@@ -44,6 +45,8 @@ class Fusion {
     void ProcessRTK(GNSSPtr gnss);
     void ProcessIMU(IMUPtr imu);
     void ProcessPointCloud(sensor_msgs::PointCloud2::Ptr cloud);
+
+    void SetUseSadNdt(bool use) { use_sad_ndt_ = use; }
 
    private:
     /// 读取某个点附近的地图
@@ -116,11 +119,15 @@ class Fusion {
     CloudPtr ref_cloud_ = nullptr;  // NDT用于参考的点云
     pcl::NormalDistributionsTransform<PointType, PointType> ndt_;
 
+    Ndt3d ndt_3d_;
+
     /// 参数
     double rtk_search_min_score_ = 4.5;
 
     // ui
     std::shared_ptr<ui::PangolinWindow> ui_ = nullptr;
+
+    bool use_sad_ndt_ = false;
 };
 
 }  // namespace sad

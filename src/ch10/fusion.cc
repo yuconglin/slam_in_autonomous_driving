@@ -229,15 +229,22 @@ void Fusion::AlignForGrid(sad::Fusion::GridSearchResult& gr) {
 bool Fusion::LidarLocalization() {
     SE3 pred = eskf_.GetNominalSE3();
     LoadMap(pred);
+    if (use_sad_ndt_) {
+        ndt_3d_.SetSource(current_scan_);
+        ndt_3d_.AlignNdt(pred);
+        eskf_.ObserveSE3(pred, 1e-1, 1e-2);
 
-    ndt_.setInputCloud(current_scan_);
-    CloudPtr output(new PointCloudType);
-    ndt_.align(*output, pred.matrix().cast<float>());
+        LOG(INFO) << "lidar loc score: " << ndt_3d_.GetLikelihood();
+    } else {
+        ndt_.setInputCloud(current_scan_);
+        CloudPtr output(new PointCloudType);
+        ndt_.align(*output, pred.matrix().cast<float>());
 
-    SE3 pose = Mat4ToSE3(ndt_.getFinalTransformation());
-    eskf_.ObserveSE3(pose, 1e-1, 1e-2);
+        SE3 pose = Mat4ToSE3(ndt_.getFinalTransformation());
+        eskf_.ObserveSE3(pose, 1e-1, 1e-2);
 
-    LOG(INFO) << "lidar loc score: " << ndt_.getTransformationProbability();
+        LOG(INFO) << "lidar loc score: " << ndt_.getTransformationProbability();
+    }
 
     return true;
 }
@@ -293,7 +300,11 @@ void Fusion::LoadMap(const SE3& pose) {
         }
 
         LOG(INFO) << "rebuild global cloud, grids: " << map_data_.size();
-        ndt_.setInputTarget(ref_cloud_);
+        if (use_sad_ndt_) {
+            ndt_3d_.SetTarget(ref_cloud_);
+        } else {
+            ndt_.setInputTarget(ref_cloud_);
+        }
     }
 
     ui_->UpdatePointCloudGlobal(map_data_);
