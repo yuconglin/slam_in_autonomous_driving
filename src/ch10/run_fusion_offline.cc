@@ -5,6 +5,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 #include <yaml-cpp/yaml.h>
+#include <thread>
 
 #include "common/io_utils.h"
 #include "fusion.h"
@@ -23,6 +24,8 @@ int main(int argc, char** argv) {
         return -1;
     }
     fusion.SetUseSadNdt(FLAGS_use_sad_ndt);
+
+    std::thread map_load_thread(&sad::Fusion::LoadMapSeparately, std::ref(fusion));
 
     auto yaml = YAML::LoadFile(FLAGS_config_yaml);
     auto bag_path = yaml["bag_path"].as<std::string>();
@@ -45,6 +48,7 @@ int main(int argc, char** argv) {
         .Go();
 
     LOG(INFO) << "done.";
+    map_load_thread.join();
     sleep(10);
     return 0;
 }

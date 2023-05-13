@@ -2,6 +2,7 @@
 // Created by xiang on 22-12-20.
 //
 #include <yaml-cpp/yaml.h>
+#include <chrono>
 #include <execution>
 
 #include "common/lidar_utils.h"
@@ -142,7 +143,8 @@ void Fusion::Align() {
             }
         }
     } else {
-        LidarLocalization();
+        // LidarLocalization();
+        LidarLocalizationSeparately();
         ui_->UpdateScan(current_scan_, eskf_.GetNominalSE3());
         ui_->UpdateNavState(eskf_.GetNominalState());
     }
@@ -185,6 +187,7 @@ bool Fusion::SearchRTK() {
         auto state = eskf_.GetNominalState();
         state.R_ = max_ele->result_pose_.so3();
         state.p_ = max_ele->result_pose_.translation();
+        LOG(INFO) << "intial p: " << state.p_.transpose();
         state.v_.setZero();
         eskf_.SetX(state, eskf_.GetGravity());
 
@@ -249,6 +252,123 @@ bool Fusion::LidarLocalization() {
     return true;
 }
 
+bool Fusion::LidarLocalizationSeparately() {
+    // we can only use pcl ndt here.
+    {
+        std::unique_lock<std::mutex> guard(map_data_mutex_);
+        map_data_cv_.wait(guard, [this] { return map_loaded_; });
+        if (map_data_really_changed_) {
+            ndt_.setInputTarget(ref_cloud_);
+            map_data_really_changed_ = false;
+        }
+        map_loaded_ = false;
+    }
+
+    const SE3 pred = eskf_.GetNominalSE3();
+    ndt_.setInputCloud(current_scan_);
+    CloudPtr output(new PointCloudType);
+    ndt_.align(*output, pred.matrix().cast<float>());
+    SE3 pose = Mat4ToSE3(ndt_.getFinalTransformation());
+    eskf_.ObserveSE3(pose, 1e-1, 1e-2);
+    LOG(INFO) << "lidar loc score: " << ndt_.getTransformationProbability();
+    return true;
+}
+
+void Fusion::LoadMapSeparately() {
+    double last_nav_state_time = 0.0;
+    int count = 0;
+
+    while (true) {
+        if (status_ == Status::WAITING_FOR_RTK) {
+            map_data_cv_.notify_one();
+            continue;
+        }
+        if (last_nav_state_time != 0.0 && last_nav_state_time == eskf_.GetNominalState().timestamp_) {
+            ++count;
+            if (count == 1000) {
+                // No updates for around 10 seconds.
+                LOG(INFO) << "The rosbag was all played.....";
+                break;
+            }
+        } else {
+            count = 0;
+        }
+        last_nav_state_time = eskf_.GetNominalState().timestamp_;
+
+        // A small difference of pose is fine. Therefore we don't put a mutex for eskf_.
+        const SE3& pose = eskf_.GetNominalSE3();
+
+        const int gx = floor((pose.translation().x() - 50.0) / 100);
+        const int gy = floor((pose.translation().y() - 50.0) / 100);
+        const Vec2i key(gx, gy);
+
+        // 一个区域的周边地图，我们认为9个就够了
+        const std::set<Vec2i, less_vec<2>> surrounding_index{
+            key + Vec2i(0, 0), key + Vec2i(-1, 0), key + Vec2i(-1, -1), key + Vec2i(-1, 1), key + Vec2i(0, -1),
+            key + Vec2i(0, 1), key + Vec2i(1, 0),  key + Vec2i(1, -1),  key + Vec2i(1, 1),
+        };
+
+        // 加载必要区域
+        bool map_data_changed = false;
+        int cnt_new_loaded = 0;
+        int cnt_unload = 0;
+        for (const auto& k : surrounding_index) {
+            if (map_data_index_.find(k) == map_data_index_.end()) {
+                // 该地图数据不存在
+                continue;
+            }
+
+            if (map_data_.find(k) == map_data_.end()) {
+                // 加载这个区块
+                CloudPtr cloud(new PointCloudType);
+                pcl::io::loadPCDFile(data_path_ + std::to_string(k[0]) + "_" + std::to_string(k[1]) + ".pcd", *cloud);
+                map_data_.emplace(k, cloud);
+                map_data_changed = true;
+                cnt_new_loaded++;
+            }
+        }
+
+        // 卸载不需要的区域，这个稍微加大一点，不需要频繁卸载
+        for (auto iter = map_data_.begin(); iter != map_data_.end();) {
+            if ((iter->first - key).cast<float>().norm() > 3.0) {
+                // 卸载本区块
+                iter = map_data_.erase(iter);
+                cnt_unload++;
+                map_data_changed = true;
+            } else {
+                iter++;
+            }
+        }
+
+        CloudPtr new_ref_cloud = nullptr;
+        if (map_data_changed) {
+            new_ref_cloud.reset(new PointCloudType);
+            for (auto& mp : map_data_) {
+                *new_ref_cloud += *mp.second;
+            }
+        }
+
+        LOG(INFO) << "new loaded: " << cnt_new_loaded << ", unload: " << cnt_unload;
+        {
+            std::lock_guard<std::mutex> lg(map_data_mutex_);
+            if (map_data_changed) {
+                // rebuild ndt target map
+                assert(new_ref_cloud != nullptr);
+                ref_cloud_ = std::move(new_ref_cloud);
+                LOG(INFO) << "rebuild global cloud, grids: " << map_data_.size();
+            }
+            map_data_really_changed_ = map_data_changed;
+            map_loaded_ = true;
+        }
+        map_data_cv_.notify_one();
+
+        ui_->UpdatePointCloudGlobal(map_data_);
+
+        using namespace std::chrono_literals;
+        std::this_thread::sleep_for(20ms);
+    }
+}
+
 void Fusion::LoadMap(const SE3& pose) {
     int gx = floor((pose.translation().x() - 50.0) / 100);
     int gy = floor((pose.translation().y() - 50.0) / 100);
@@ -262,8 +382,9 @@ void Fusion::LoadMap(const SE3& pose) {
 
     // 加载必要区域
     bool map_data_changed = false;
-    int cnt_new_loaded = 0, cnt_unload = 0;
-    for (auto& k : surrounding_index) {
+    int cnt_new_loaded = 0;
+    int cnt_unload = 0;
+    for (const auto& k : surrounding_index) {
         if (map_data_index_.find(k) == map_data_index_.end()) {
             // 该地图数据不存在
             continue;
