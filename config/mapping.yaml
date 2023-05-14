@@ -1,5 +1,6 @@
 YAML: 1.0
-bag_path: /home/yuconglin/slam_data/NCLT/20130110.bag
+#bag_path: /home/yuconglin/slam_data/NCLT/20130110.bag
+bag_path: /home/yuconglin/slam_data/NCLT/20120429.bag
 lio_yaml: ./config/velodyne_nclt.yaml
 map_data: ./data/ch9/map_data/
 origin:

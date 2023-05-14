@@ -22,6 +22,7 @@
 #include <pcl/registration/ndt.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <condition_variable>
+#include <queue>
 #include <thread>
 
 namespace sad {
@@ -51,6 +52,7 @@ class Fusion {
     void SetUseSadNdt(bool use) { use_sad_ndt_ = use; }
 
     void LoadMapSeparately();
+    void LoadMapQueue();
 
    private:
     /// 读取某个点附近的地图
@@ -78,6 +80,7 @@ class Fusion {
     /// 激光定位
     bool LidarLocalization();
     bool LidarLocalizationSeparately();
+    bool LidarLocalizationQueue();
 
     /// 使用IMU初始化
     void TryInitIMU();
@@ -133,11 +136,23 @@ class Fusion {
     std::shared_ptr<ui::PangolinWindow> ui_ = nullptr;
 
     bool use_sad_ndt_ = false;
+
+    // The following 4 variables are used in multithread attempt 1.
     // Use longer name to avoid confusion.
     bool map_data_really_changed_ = false;
     std::mutex map_data_mutex_;
     std::condition_variable map_data_cv_;
     bool map_loaded_ = false;
+
+    // The following 3 variables are used in multithread attempt 2.
+    struct MapData {
+        bool map_data_updated{};
+        CloudPtr map_cloud = nullptr;
+    };
+
+    std::mutex q_mutex_;
+    std::condition_variable map_data_q_cv_;
+    std::queue<MapData> map_data_q_;
 };
 
 }  // namespace sad
